@@ -1,0 +1,165 @@
+
+<!DOCTYPE html>
+<html>
+<title>Postgres-2.0 Documentation</title>
+<xmp theme="united" style="display:none;">
+
+## Migrating from 'postgres' service to 'postgres-2.0' Service
+
+### Assumptions
+
+These steps must be executed with the following assumptions. Please be sure to
+consider all these assumptions and their implications.
+
+- The application uses exactly one database in `postgres` service.
+- All the objects in the database are owned by exactly one user.
+- That same user is the only entity that accesses the data from the application.
+- The data is not being modified while the migration runs.
+- The customer has created a new database instance of `postgres-2.0` serice in their Cloud Foundry Org.
+- The superuser of the destination DB will own all the migrated objects.
+- You have the credentials to connect to both the source and the destination database.
+- Testing the migrated database is the customer's responsibility.
+
+### Postgres-2.0 Instance Creation
+
+Details about creating new instances and available plans can be found here.
+
+[https://docs.predix.io/en-US/content/service/data_management/sql_database/](https://docs.predix.io/en-US/content/service/data_management/sql_database/)
+
+### Launch a shell in Cloud Foundry
+
+Launch a shell in same Cloud Foundry as hosting customer's Org.
+
+Deploy the following application in your org and space :
+
+1. Download and cf push
+
+	```shell
+	git clone https://github.com/gurjeet/gotty-cf-bash
+	cd gotty-cf-bash
+	cf push --random-route
+	```
+
+2. Open the application's URL in a browser.
+
+	Please prefix the app URL with `https://`. Google Chrome is known to work better with this application for copy-pasting text.
+
+3. Set up the GoTTY application
+
+	In the browser, open the URL from the Gotty app push, and execute the steps below on the terminal opened in the Gotty app on the browser. 
+
+	```shell
+	mkdir ${HOME}/tmp_postgres_install
+	cd ${HOME}/tmp_postgres_install
+	```
+
+4. Downloading the needed libraries and client for Postgres
+
+	```shell
+	wget -q http://mirrors.kernel.org/ubuntu/pool/main/libe/libevent/libevent-2.0-5_2.0.21-stable-2_amd64.deb
+	wget -q http://mirrors.kernel.org/ubuntu/pool/main/t/tmux/tmux_1.8-5_amd64.deb
+
+	ver=9.6 # Valid values: 10, 9.6
+	module=postgresql-client-$ver
+	q=-q
+	case $ver in
+		9.6)    pqOsVer=12 ;;
+		10)     pqOsVer=14 ;;
+		*)      die 2 "unsupported version $ver" ;;
+	esac
+
+	wget $q -nd -l1 -r --reject '*.git*' --accept "libpq5_${ver}*.pgdg*.*+1_amd64.deb" http://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-$ver/
+	wget $q -nd -l1 -r --reject '*.git*' --accept "${module}*.pgdg14.04+1_amd64.deb" http://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-$ver/
+	```
+
+5. Extract from Archive
+
+	```shell
+	for f in *.deb; do rm -f data.tar.*;  ar x "$f";  tar xf data.tar.*;  done
+	```
+
+6. Set up environment variables for execution.
+
+	```shell
+	export LD_LIBRARY_PATH="${HOME}/tmp_postgres_install/usr/lib/x86_64-linux-gnu/:${LD_LIBRARY_PATH}"
+	export PATH="${HOME}/tmp_postgres_install/usr/lib/postgresql/9.6/bin/:${HOME}/tmp_postgres_install/usr/bin:${PATH}"
+	```
+
+7. Test installation
+
+	`psql --help` should return the help menu for Postgres
+
+	Customize the following snippet of shell code and perform the migration.
+
+8. Launch tmux
+
+    Launch `tmux` so that the console session is saved, even if you/browser get
+	disconnected from the GoTTY server.
+
+	```
+	tmux
+	```
+
+9. Notes to Reconnect
+
+    If you do get disconnected, simply refresh the browser window, and you would
+	be reconnected to the GoTTY server, and should be greeted with the shell
+	session of the container.
+
+	To reconnect to the tmux session launched earlier, simply set the environmnet
+	variables and reattach to the tmux session.
+
+	```
+	export LD_LIBRARY_PATH="${HOME}/tmp_postgres_install/usr/lib/x86_64-linux-gnu/:${LD_LIBRARY_PATH}"
+	export PATH="${HOME}/tmp_postgres_install/usr/lib/postgresql/9.6/bin/:${HOME}/tmp_postgres_install/usr/bin:${PATH}"
+
+	tmux a
+	```
+
+8. Configure the Environment Variables
+
+    Set the following environment variables related to the source and destination
+	database instances.
+
+	```shell
+	SRC_DB_HOST=""
+	SRC_DB_PORT=""
+	SRC_DB_NAME=""
+	SRC_USER_NAME=""
+	SRC_USER_PASSWORD=""
+
+	DEST_DB_HOST=""
+	DEST_DB_PORT=""
+	DEST_DB_NAME=""
+	DEST_USER_NAME=""
+	DEST_USER_PASSWORD=""
+	```
+
+### Perform Migration
+
+Most of the extensions available in RDPG are available in RDS as well.
+Specifically, the ones that are available by default in a freshly created RDPG
+database are all available in RDS. This allows us to successfully execute
+CREATE EXTENSION commands. But, since the customer's user is not a real
+superuser in RDS instance, the 'COMMENT ON EXTENSION' commands fail. These
+failures are benign, so we filter out these commands and prevent errors.
+
+It would be preferrable to restore the database in a single transaction, by
+using psql's --single-transaction. But we don't use that since that will make
+the migration fail on first error. We would like to see all the errors in one go
+so that all those errors can be addressed before next migration attempt. The
+migrated database should be tested by the customer before the cutover, which
+requires down time.
+
+```shell
+PGPASSWORD=$SRC_USER_PASSWORD pg_dump -h $SRC_DB_HOST -p $SRC_DB_PORT -U $SRC_USER_NAME -d $SRC_DB_NAME --serializable-deferrable --no-owner --no-privileges \
+ | grep -v '^COMMENT ON EXTENSION' \
+ | PGPASSWORD=$DEST_USER_PASSWORD psql -h $DEST_DB_HOST -p $DEST_DB_PORT -U $DEST_USER_NAME -d $DEST_DB_NAME --echo-all \
+ > migration.log 2>&1
+```
+
+
+</xmp>
+<script src="strapdown.js"></script>
+</html>
+

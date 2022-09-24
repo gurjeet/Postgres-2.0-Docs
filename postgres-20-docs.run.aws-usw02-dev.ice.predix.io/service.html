@@ -1,0 +1,438 @@
+
+<!DOCTYPE html>
+<html>
+<title>Postgres-2.0 Documentation</title>
+<xmp theme="united" style="display:none;">
+
+
+# Database-as-a-Service
+
+## Database-as-a-Service
+
+PostgreSQL is a database-as-a-service object-oriented relational database management system to store data securely for retrieval at the request of other software applications.
+
+The PostgreSQL Database relational database management system (RDBMS) as a service on Predix, offers features that emphasize extensibility and standards compliance. PostgreSQL supports multiple data types such as, XML, JSON, arrays, geometric and many others in different domains.
+
+The database can handle workloads ranging from single-machine apps to internet-facing applications with many concurrent users.
+
+For more information and details about using PostgreSQL Database, see the PostgreSQL documentation. More information about the SQL Database-as-a-service follows.
+
+## Available Plans
+
+This service provides following plans:
+
+1. `dedicated-10.1`: 2 CPU, 8 GB RAM, 50 GB Storage
+2. `dedicated-20.1`: 4 CPU 16 GB RAM, 100 GB Storage
+3. `dedicated-30.1`: 8 CPU 32 GB RAM, 200 GB Storage
+
+## High Availability
+
+The database instances are configured for high availability and automatic failover. Every database instance has a standby synchronous replica in a separate datacenter. In case of an instance failure or a datacenter disruption, the standby synchronous replica takes over.
+
+## Superuser Access
+
+A uniquely named database superuser role is created within every new instance.
+The credentials for the superuser role are provided to the Cloud Foundry apps
+via the `VCAP_SERVICES` environment variable. This user is a member of the
+system-defined `postgres_dba` role. The `postgres_dba` role should not be
+dropped or altered in any way. This initial superuser role can be used to create
+additional databases and additional roles in the instance. Any of those roles
+can also be granted access to the `postgres_dba` role. Membership in the role
+grants users broadly destructive operations. Use caution when assigning the
+`postgres_dba` role.
+
+## System Objects in Database Instance
+
+Every database instance has a database superuser named `postgres_operator` and a
+database named `postgres_operator_db`. Do not modify them in any way, as the
+service depends on them.
+
+## Automatic Backups and Retention
+
+Database instances are backed-up automatically every day, at a system-chosen time. These automatic backups are retained for seven (7) days.
+
+## Maintenance Window
+
+Database instances are automatically maintained during a weekly 30-minute
+maintenance window assigned by the system upon instance creation. While this
+window is not used frequently, you should be aware that it exists and that the
+maintenance may cause down time, however brief.
+
+The maintenance window of a database instance is included in the database
+instance's `credentials` property, as shown in [credentials](#credentials)
+section. **Maintenance windows are in UTC.**
+
+You may change maintenance windows. The format for maintenance windows consists
+of a pair dates separated by a hyphen. The format of dates consists of the
+three-letter weekday, the hour (0-23), and the minute, separated by colons. A
+window spanning days would look like: `sat:23:45-sun:00:15`. The full call is
+illustrated below:
+
+```
+cf update-service my-db -c '{"maintenance_window": "fri:03:30-fri:04:00"}'
+```
+
+## Postgres Minor-version Upgrades
+Minor version upgrades are strictly bug fixes which are deemed by the PostgreSQL community to be safer to apply than to defer. They occur automatically after roll-out during the next maintenance window.
+
+
+# Credentials
+
+Use 'credentials' to identify the database service object.
+
+There are a number of ways to identify the database service credentials. For example the credentials object is available in 'VCAP_SERVICES' of an application. The following steps provide another way of inspecting the credentials.
+
+1. Find an existing service key.
+
+    ```shell
+    cf service-keys my-db
+    ```
+
+2. Create a service key, if one isn't already usable by you.
+
+    ```shell
+    cf create-service-key my-db my-db-key
+    ```
+
+3. Get the credentials
+
+    ```shell
+    cf service-key my-db my-db-key
+        ...
+    {
+     "hostname": "db-hostname",
+     "port": 5432,
+     "database": "postgres",
+     "username": "username",
+     "password": "password",
+     "uri": "postgres://username:password@db-hostname:5432/dbname",
+     "uuid": "4ac6cb37-f486-4d71-a339-eb46bce4e399",
+     "allocated_storage": 10,
+     "maintenance_window": "fri:03:00-fri:03:30",
+     "encryption_at_rest": true
+    }
+    ```
+
+#Using the Database-as-a-Service
+Database-as-a-service uses Postgres and allows you to choose the appropriate major version.
+
+##Choosing a Postgres Version
+When creating a new database instance, you may specify a Postgres major version using a JSON object which consists of one key, `postgres_version` and the corresponding value, which is formatted as command line string as follows:
+
+    cf create-service postgres-2.0 dedicated-20.1 my-db -c '{"postgres_version":"9.5”}
+
+## Point-in-time Recovery
+
+Point-in-time Recovery (PITR) creates a new instance whose state begins at your chosen point in the past, up to seven (7) days, for an existing instance. From that moment forward, the new instance is independent of its parent. Storage for the new instance is general purpose SSD, just as it is when creating ordinary instances. The new instance must be created with the same plan as the existing instance. PITR can be used for recovery from human errors like unqualified deletes, and for creating development databases which need to contain a data set which reflects production. The unique ID (uuid) of a database instance is included in the credentials property, as shown in the section.
+Use unique ID (uuid) to create a new service instance:
+
+    cf create-service postgres-2.0 medium my-db-clone -c '{
+    "restore_from" : {
+        "source_db_instance_id": "4ac6cb37-f486-4d71-a339-eb46bce4e399",
+        "restore_to_time": "2016-08-01T23:52:25Z"
+        }
+    }'
+
+    Creating service instance my-app-clone in org my-org / space test as me@example.com...
+    OK
+
+You must specify the value of the `restore_to_time` parameter in UTC. An instance created using PITR inherits the data and many configuration settings from the instance from which it is created, so specifying `encryption_at_rest` or `postgres_version` in a PITR request produces an error. To check on the progress of service creation started by the above command, use the `cf service` command.
+
+    cf service my-db-clone
+    Service instance: my-db-clone
+    ...
+
+    Last Operation
+    Status: create succeeded
+    ..
+
+After successful creation of the new instance, you can `cf unbind` the application from the previous instance and `cf bind` it to the new instance. Alternatively, you can use `cf rename-service` to achieve desired configuration.
+
+## Increasing DB Instance Storage
+
+The allocated storage of the DB instance can be increased using Cloud Foundry
+CLI. For example:
+
+```shell
+cf update-service my-db -c '{"allocated_storage":100}'
+```
+
+This is an asynchronous operation, and may take a while to finish. The database
+is available while the allocated storage is being increased. This operation,
+while in progress, may slightly adversely impact database performance.
+
+The value of `allocated_storage` parameter is the number of Gigabytes you wish to set
+the DB instance's allocated storage to. Decreasing the allocated storage of a
+DB instance is not allowed.
+
+## Encryption at Rest
+Database instances can be created with their storage encrypted. Each database instance's storage is encrypted using a unique encryption key, except when database instances are created using Point-in-Time-Recovery (PITR). Database instances created using PITR inherit the encryption key from the instance they are created from. When creating a new database instance, you may enable storage encryption using a JSON object which consists of one key, `encryption_at_rest` and the corresponding boolean value in command line format:
+
+    ````shell
+    cf create-service postgres-2.0 dedicated-20.1 my-db –c '{"encryption_at_rest":true}'
+    ```
+
+## Changing the DB Instance Plan
+
+The DB Instance plan can be changed to any of the supported plans using the Cloud Foundry CLI
+For example:
+
+	```shell
+	cf update-service my-db -p new-plan
+	```
+
+Like the Instance storage operation, This is also an asynchronous operation, and may take
+some time to finish. During this time you can expect some downtime till the plan is getting
+upgraded. Once the DB is in the available state, The DB is ready to use.
+
+Note: Each plan provides a fixed amount of storage for free. When an instance's plan is changed, the allocated storage is not changed to match the target plan's free storage. You can increase the allocated storage of the DB instance separately to match the free storage available for the target plan. You will be charged for any storage that is over the free storage provided for plan. Keep in mind that it is not possible to reduce storage.
+
+# Connecting to the Database-as-a-Service
+
+Only applications in the Cloud Foundry environment are allowed to connect to the DB instances provisioned by the Postgres-2.0 database-as-a-service.
+
+You can connect to the Database-as-a-service two ways:
+    - Graphic User Interface (GUI) Access – Use pgStudio to access and connect your application to the database. Directions for installing and using pgStudio are here.
+    - Command Line Interface (CLI) – Use the CLI to access a server side terminal session through your browser using GoTTY.
+
+## GoTTY Basics
+GoTTY is a server-side application that exposes a bash shell via a browser. Optionally, you can install a client application allowing you to use a terminal instead of a browser to access the shell.
+
+Consider using the `--random-route` option when deploying the GoTTY application as it makes the URL unique, ensuring that it will not collide with any existing applications URLs. The `--random-route` option also enhances URL security by making it harder for an attacker to guess. However, note that anybody with a URL of the GoTTY application can connect to the terminal exposed by this application and access your databases. For this reason, when you have completed your tasks delete the application using the cf delete command as soon as it the application is no longer needed.
+
+## Using GoTTY
+Use the following steps to install the GoTTY client.
+
+1. (Optional) Install the [gotty client](https://github.com/moul/gotty-client) from their [release page](https://github.com/moul/gotty-client/releases)
+2. Clone the `gotty-cf-bash` repository.
+    ```shell
+    git clone https://github.com/gurjeet/gotty-cf-bash
+    cd gotty-cf-bash
+    ```
+
+3. (Optional) Edit the `manifest.yml` file and increase the memory from 128m to 1G
+4. Push the GoTTY app to cloud foundry.
+    ```shell
+    cf push --random-route
+    ```
+5.  Ensure that the application is running by navigating to the HTTPS URL.
+6.  Note your DB credentials URL as described in [credentials](#credentials) above.
+7.  To access GoTTY you need to prepend `https:` to the route you generated above to produce `https://THE_GOTTY_URL`. You can then use this URL one of the following ways:
+
+    -   Use your browser and navigate to `https://THE_GOTTY_URL`
+    -   Use the GoTTY client:
+    ```shell
+    gotty-client https://THE_GOTTY_URL
+    ```
+
+8.  Execute the following commands in the GoTTY shell to install the psql client and make it available.
+```shell
+    wget http://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-9.5/postgresql-client-9.5_9.5.6-1.pgdg16.04%2b1_amd64.deb
+    wget http://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-9.5/libpq5_9.5.4-1.pgdg15.10%2b1_amd64.deb
+
+    ar x libpq5_9.5.4-1.pgdg15.10+1_amd64.deb
+    tar xvf data.tar.xz --directory $HOME
+
+    ar x postgresql-client-9.5_9.5.6-1.pgdg16.04+1_amd64.deb
+    tar xvf data.tar.xz --directory $HOME
+
+    export LD_LIBRARY_PATH="${HOME}/usr/lib/x86_64-linux-gnu/:${LD_LIBRARY_PATH}"
+    export PATH="${HOME}/usr/lib/postgresql/9.5/bin/:${PATH}"
+    ```
+
+9.  To connect to your database, use the GoTTY shell to invoke psql with the DB credentials you previously retrieved.
+```shell
+psql postgres://username:password@db-hostname:5432/postgres
+```
+
+You can now execute _ad hoc_ SQL commands on your database.
+
+<!--
+
+
+## Maintenance Window
+
+## Postgres Minor-version Upgrades
+
+To ensure the best available data integrity and access control, automatic minor
+version upgrades are enabled.
+
+Minor version upgrades are strictly bug fixes which are deemed by the PostgreSQL
+community to be safer to apply than to defer. They occur automatically after
+roll-out during the next maintenance window.
+
+## Point-in-Time Recovery
+
+Point-in-time Recovery (PITR) creates a new instance whose state begins at your
+chosen point in the past, up to 7 days, for an existing instance. From that
+moment forward, the new instance is independent of its parent. Storage for the
+new instance is general purpose SSD, just as it is when creating ordinary
+instances. The new instance must be created with the same plan as the existing
+instance.
+
+PITR can be used for recovery from human errors like unqualified deletes, and
+for creating development databases which need to contain a data set which
+reflects production.
+
+The unique ID (uuid) of a database instance is included in the `credentials`
+property, as shown in the [credentials](#credentials).
+
+Use the the uuid to create a new service instance, e.g.:
+
+```
+cf create-service postgres-2.0 dedicated-20.1 my-db-clone -c '{
+    "restore_from" : {
+        "source_db_instance_id": "4ac6cb37-f486-4d71-a339-eb46bce4e399",
+        "restore_to_time": "2016-08-01T23:52:25Z"
+    }
+}'
+
+Creating service instance my-app-clone in org my-org / space test as me@example.com...
+OK
+```
+
+You must specify the value of `restore_to_time` parameter in UTC.
+
+An instance created using PITR inherits the data and many configuration settings
+from the instance from which it is created, so specifying `encryption_at_rest`
+or `postgres_version` in a PITR request is an error.
+
+To check on the progress of service creation started by the above command, use
+`cf service` command, e.g.:
+
+```
+cf service my-db-clone
+Service instance: my-db-clone
+...
+
+Last Operation
+Status: create succeeded
+...
+```
+
+After successful creation of the new instance, you can `cf unbind` the
+application from the previous instance and `cf bind` it to the new instance.
+Alternatively, you can use `cf rename-service` to achieve desired configuration.
+
+## Choosing a Postgres Version
+
+When creating a new database instance, you may specify a Postgres major version
+using a JSON object which consists of one key, "postgres_version" and the
+corresponding value, which is formatted as a string.
+
+You may do this from the command line like this:
+
+```shell
+cf create-service postgres-2.0 dedicated-20.1 my-db -c '{"postgres_version":"9.5"}'
+```
+
+## Encryption at Rest
+
+Database instances can be created with their storage encrypted. Each database
+instance's storage is encrypted using a unique encryption key, except when database
+instances are created using Point-in-Time-Recovery (PITR). Database instances
+created using PITR inherit the encrytion key from the instance they are created
+from.
+
+When creating a new database instance, you may enable storage encryption using a
+JSON object which consists of one key, "encryption_at_rest" and the corresponding
+boolean value.
+
+You may do this from the command line like this:
+
+```shell
+cf create-service postgres-2.0 dedicated-20.1 my-db -c '{"encryption_at_rest":true}'
+```
+
+## Underlying System
+
+Postgres database instances are created with general purpose SSD storage.
+
+## Connecting to your database
+
+Only the apps in the Cloud Foundry enviroment are allowed to connect to the DB
+instances provisioned by Postgres-2.0 service. Hence, one needs to deploy and use
+an application in Cloud Foundry in order to connect to these DB instances.
+
+### Graphical (GUI) Access
+
+A set of instructions for installing and using pgStudio is [here](https://www.predix.io/support/article/KB0010829).
+
+### Command Line
+
+In this section, you are assumed to be willing to install software and configure
+it.
+
+This consists of a server-side application, GoTTY, that exposes the bash shell
+over a browser, or an optional client application, gotty-client, which lets you
+use your terminal instead of the browser to access that shell.
+
+We recommend using the `--random-route` option when deploying the GoTTY
+application as it makes the URL unique, ensuring that it will not collide with
+an existing app's URL. The --random-route option also makes the URL much harder
+for an attacker to guess. Please note that anybody with a URL of this
+application can connect to the terminal exposed by this application and access
+your databases. For this reason we also recommend that you delete this
+application, using `cf delete` command, as soon as it is not needed.
+
+#### GoTTY
+
+1. (Optional) Install [gotty-client](https://github.com/moul/gotty-client) from
+their [releases page](https://github.com/moul/gotty-client/releases).
+
+2. Clone the `gotty-cf-bash` repository.
+
+    ```shell
+    git clone https://github.com/gurjeet/gotty-cf-bash
+    cd gotty-cf-bash
+    ```
+
+3. (Optional) Edit manifest.yml to increase memory from 128m to 1G
+
+4. Push the GoTTY app to cloud foundry.
+
+    ```shell
+    cf push --random-route
+    ```
+
+5. Ensure that it's running by navigating to the HTTPS URL.
+
+6. Get your DB credentials URL [as described above](#credentials)
+
+7. Get access to GoTTY. You will need to prepend `https:` to the route you
+   generated above to produce `https://THE_GOTTY_URL`. You can then use this
+   URL one of the following ways:
+
+   - In your browser, navigate to `https://THE_GOTTY_URL`
+   - To use the optional GoTTY client, do:
+   ```shell
+   gotty-client https://THE_GOTTY_URL
+   ```
+
+8. Execute the following commands in the GoTTY shell to install the `psql` client and make it available.
+    ```shell
+    wget http://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-9.5/postgresql-client-9.5_9.5.6-1.pgdg16.04%2b1_amd64.deb
+    wget http://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-9.5/libpq5_9.5.4-1.pgdg15.10%2b1_amd64.deb
+
+    ar x libpq5_9.5.4-1.pgdg15.10+1_amd64.deb
+    tar xvf data.tar.xz --directory $HOME
+
+    ar x postgresql-client-9.5_9.5.6-1.pgdg16.04+1_amd64.deb
+    tar xvf data.tar.xz --directory $HOME
+
+    export LD_LIBRARY_PATH="${HOME}/usr/lib/x86_64-linux-gnu/:${LD_LIBRARY_PATH}"
+    export PATH="${HOME}/usr/lib/postgresql/9.5/bin/:${PATH}"
+    ```
+
+8. To connect to your database, use the GoTTY shell to invoke psql with the
+   credentials you got above, e.g.
+    ```shell
+    psql postgres://username:password@db-hostname:5432/postgres
+    ```
+
+You can now execute _ad hoc_ SQL commands on your database.
+
+</xmp>
+<script src="strapdown.js"></script>
+</html>
+

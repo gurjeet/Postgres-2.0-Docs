@@ -1,0 +1,58 @@
+
+<!DOCTYPE html>
+<html>
+<title>Postgres-2.0 Documentation</title>
+<xmp theme="united" style="display:none;">
+
+# Service Internals
+
+These details are provided as a courtesy for the curious.  They are not public
+interfaces, and are subject to change without notice.
+
+## Cloud Foundry
+
+Cloud Foundry provides a simple set of primitives for operation.  This service
+uses only these primitives in public APIs.
+
+## Amazon RDS Postgres
+
+The database instances provided by the service are actually Amazon RDS Postgres
+instances. The service sends a subset of RDS API calls.
+
+### High Availability
+Every DB instance is configured for High Availability by choosing AWS’ Multi-AZ
+(a.k.a multi-datacenter) configuration. Every DB instance has a synchronous
+replica in a close-by Availability Zone (AZ). This replica is not available or
+even visible to customers (even to Postgres-2.0 service). In case of a failure
+of the primary DB instance or the AZ in which that DB instance is running
+Amazon RDS promotes the synchronous replica and makes that available to the
+applications for use. There is no SLA on how long this failover can take, hence
+no guarantees on how long the downtime would be in case of a failure. The DB
+instance's URL does not change after a failover, hence a reconfiguration of
+applications is not necessary; the applications have to just keep retrying to
+reconnect to the database.
+
+### Encryption at Rest
+For a DB instance that requires encryption-at-rest, Postgres-2.0 service creates
+a Customer Master Key (CMK) in AWS Key Management Service (KMS). Postgres-2.0
+service sends the CMK’s id is sent to Amazon RDS as part of DB instance creation
+request. Amazon RDS uses the CMK to create the Amazon EBS volumes. Every
+encrypted DB instance that requested encryption uses a dedicated CMK; in other
+words, the CMKs are not shared between DB instances, with an exception. The DB
+instances that are created using Point-in-Time Recovery feature (see
+Postgres-2.0 docs) with an encrypted DB instance as a source, share the CMK.
+
+### Max Connections Per Plan
+|  Plan Name      |                    Description                     | Max Connections |
+|-----------------|----------------------------------------------------|-----------------|
+|  dedicated-1.1  |   Dedicated Postgres DB Instance: 1 CPU 1 GB RAM   |         87      |
+|  dedicated-5.1  |   Dedicated Postgres DB Instance: 1 CPU 2 GB RAM   |        198      |
+|  dedicated-10.1 |   Dedicated Postgres DB Instance: 2 CPU 8 GB RAM   |        856      |
+|  dedicated-20.1 |   Dedicated Postgres DB Instance: 4 CPU 16 GB RAM  |       1743      |
+|  dedicated-30.1 |   Dedicated Postgres DB Instance: 8 CPU 32 GB RAM  |       3518      |
+|  dedicated-40.1 |   Dedicated Postgres DB Instance: 16 CPU 64 GB RAM |       5000      |
+
+</xmp>
+<script src="strapdown.js"></script>
+</html>
+
